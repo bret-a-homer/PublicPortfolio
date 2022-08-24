@@ -1,0 +1,227 @@
+
+#### CREATE SYNTHETIC DATA SET #####
+
+set.seed(42)
+
+#Create 40 Soldiers
+Name <- c("Ali", "Bob", "Chan", "Don", "Ed", "Fran", "Gal", "Han", "Ira", "Jon", "Kim", "Leo",
+          "Mia", "Nat", "Orr", "Pol", "Qin", "Rod", "Sam", "Tim", "Uma", "Vic", "Wil", "Xi", 
+          "Yui", "Zac", "Ada", "Bil", "Cam", "Doc", "Ell", "Fred", "Gus", "Hugh", "Jil", "Kat",
+          "Lon", "Mat", "Nora", "Oz")
+# Add z-score Personality Data for x, y, x dimensions. 
+x <- rnorm(40, mean=0, sd = 1)
+y <- rnorm(40, mean=0, sd = 1)
+z <- rnorm(40, mean=0, sd = 1)
+#Create team variable with 11 teams where 11th is R for Recruits needing placement
+Team <- c(rep(LETTERS[1:10],3),rep("R",10))
+df<-data.frame(Name,x,y,z,Team)
+df$Team <-as.factor(df$Team)
+#Take a look at the set
+str(df)
+describe(df[,2:4])
+# Look at how groups compare on their scores. 
+df %>% group_by(Team) %>% summarize(mean.x= mean(x),
+                                    skw.y = skew(y),
+                                    var.z = var(z))
+### reshuffle Function###
+
+#Team.0 <- sample(c(rep(LETTERS[1:10],3),rep("R",10)),40,replace = FALSE)
+
+# set weights for predictor variables
+x_beta <- .3
+y_beta <- -.12
+z_beta <- .2
+
+##### CALCULATE TEAM COMPOSITION SCORES #####
+
+# create function that calculates comp score for a given team Tm
+team_comp_calc <- function(Tm){ #only input is Tm for team letter
+  df.Team <- df %>%  # pass df to pipe operator
+    filter(Team == Tm) # filter cases with only Tm as team
+  #calculate composite score
+  tc_Team <- mean(df.Team$x)*x_beta + skew(df.Team$y)*y_beta + var(df.Team$z)*z_beta
+}
+
+# initialize empty vector tc to hold team composition (tc) scores
+tc <- c()
+# apply function created above to each i in unique(Team)
+#  this creates the score for each unique team and assigns it to 
+#  vector tc.
+for (i in unique(Team)) {
+  new.tc <- team_comp_calc(i)
+  tc <- c(tc,new.tc)
+}
+
+# Create dataframe with tc and team ID
+df.tc <- data.frame(unique(Team),tc)
+#Display each team's composition score ranked
+df.tc %>%  arrange(desc(tc))
+
+# Check your work with team_comp_calc("D") or another team. 
+print(team_comp_calc("F")) # Good. This aligns with df.tc. 
+
+###### CALCULATE BEST PLACEMENTS FOR RECRUITS #####
+
+# Calculate new team comp Score based on new member 
+# requires inputs Tm (Team) and NewMember (Member index from df.R)
+# NOTE: new member must be in 1:10 because it indexes from df.R[,]
+team_comp_calc_new_member <- function(Tm, NewMember){
+  df.Team <- df %>% 
+    filter(Team == Tm)
+  df.R <- df %>% 
+    filter(Team == "R")
+  df.Team.i <- bind_rows(df.Team,df.R[NewMember,])
+  tc.Team.i <- mean(df.Team.i$x)*x_beta + skew(df.Team.i$y)*y_beta + var(df.Team.i$z)*z_beta
+}
+
+# create df with all possible placement comps and comp changes
+best_placement_func <- function(i){
+  df.i <- mapply(team_comp_calc_new_member,unique(Team),i)
+  df.i1 <- data.frame(df.i,tc,unique(Team))
+  df.i2 <- rename(df.i1,
+                  NewComp = df.i,
+                  Comp = tc,
+                  Team = unique.Team.) 
+  df.i3 <- mutate(df.i2,
+                  CompChng = NewComp-Comp)
+}
+
+### Create a df that contains all assignment tables
+Recruits <- df %>% filter(Team =="R")
+best_placements_by_Recruit <- lapply(1:nrow(Recruits), best_placement_func)
+names(best_placements_by_Recruit) = Recruits$Name
+
+str(best_placements_by_Recruit)
+
+#Check Ell's placements
+data.frame(best_placements_by_Recruit["Ell"]) %>% 
+  arrange(desc(Ell.CompChng))
+#Check Gus's and Oz's Placements
+best_placements_by_Recruit[c("Gus","Oz")]
+
+place_by_Soldier <- function(i) {
+  place_by_Soldier.i <- data.frame(best_placements_by_Recruit[i])
+  place_by_Soldier.i2 <- place_by_Soldier.i[,c(3,1,2,4)]
+  colnames(place_by_Soldier.i2) <- c("Team Assigned", "New Comp", "Old Comp", "Net Change")
+  place_by_Soldier.i3 <- place_by_Soldier.i2 %>% 
+    mutate_if(is.numeric, round, digits = 3) %>%
+    arrange(desc(place_by_Soldier.i2[,4]))
+}
+
+print(place_by_Soldier("Ell"))
+
+#Clean up the results in a new function
+#place_by_Team <- function(i){
+#place_by_Team.i <- data.frame(best_placements_by_Teams[i])  
+#place_by_Team.i2 <- place_by_Team.i[,c(2,3,1,4)]
+#colnames(place_by_Team.i2) <- c("Soldier","Old Comp Score","New Comp Score",
+#"Net Change")
+#place_by_Team.i3 <-  place_by_Team.i2 %>% mutate_if(is.numeric, round, digits = 3)
+#place_by_Team.i4 <- place_by_Team.i3 %>%  arrange(desc(place_by_Team_.i3[,4]))
+#}
+
+##### CALCULATE BEST PLACEMENTS FOR TEAMS #####
+
+#Compute team i's different comp score for every Recruit
+best_placement_func_for_Team <- function(i){
+  df.i <- mapply(team_comp_calc_new_member,i,1:10)
+  names(df.i) = 1:10
+  names(tc) = c(LETTERS[1:10],"R")
+  df.i1 <- data.frame(df.i,unique(Recruits$Name),rep(tc[i],10))
+  df.i2 <- rename(df.i1,
+                  NewComp = df.i,
+                  Recruit = unique.Recruits.Name.,
+                  Comp = rep.tc.i...10.) 
+  df.i3 <- mutate(df.i2, 
+                  CompChng = NewComp - Comp)
+}
+
+#check calcuation for A
+print(best_placement_func_for_Team("A"))
+
+# Create dataframe with all best placement dfs
+best_placements_by_Teams <- lapply(unique(Team), best_placement_func_for_Team)
+names(best_placements_by_Teams) = unique(Team)
+
+#View All 
+best_placements_by_Teams
+#View A Team results
+best_placements_by_Teams["A"]
+
+#Clean up the results in a new function that produces distinct data.frame per team
+place_by_Team <- function(i){
+  place_by_Team.i <- data.frame(best_placements_by_Teams[i])  
+  place_by_Team.i2 <- place_by_Team.i[,c(2,3,1,4)]
+  colnames(place_by_Team.i2) <- c("Soldier","Old Comp Score","New Comp Score",
+                                  "Net Change")
+  place_by_Team.i3 <-  place_by_Team.i2 %>% mutate_if(is.numeric, round, digits = 3)
+  place_by_Team.i4 <- place_by_Team.i3 %>%  arrange(desc(place_by_Team.i3[,4]))
+  }
+
+#check new table for placements by Team A
+print(place_by_Team("A"))
+
+
+
+
+##### UI Scaffolding for Assignment Tool#####
+
+library(shiny)
+library(dplyr)
+#library(shinythemes)
+library(DT)
+
+ui <- fluidPage(
+  # add the title panel
+  titlePanel("Personality Composition Assignment Tool - DEMO"),
+  # add theme selector find the right theme.
+  #shinythemes::shinytheme('flatly'),
+  # add the sidepanel with action button and maybe description
+  sidebarLayout(
+    #Side panel contains description and shuffle button
+    sidebarPanel(
+         p("This program recommends Soldiers to teams based on whether the resulting 
+              personality compositions predispose teams to succeed. This demo 
+              uses synthetic data to demonstrate basic program functions."),
+              p("The Comp Score summarizes the influence of the team personality profile on that team's performance by comparing it to the average team. 
+              The average team has a Comp Score of 0. The higher the comp score, the greater the edge over the average team. Negative scores are a prediction that team personality profile will hinder team functioning.")
+    ),
+    mainPanel(
+      tabsetPanel(
+        # first tab contains the teams table and selectInput for teams.
+        # allows users to find best soldiers for a particular team.
+        tabPanel('Teams', 
+                 selectInput(
+                   'team_selected', 'Select a Team', 
+                   choices = unique(df$Team)
+                   ),
+                 dataTableOutput('Teams_table')
+        ),
+        # second tab contains the soldier table and selectInput for Soldier.
+        #allows users to find best team for a particular Soldier
+        tabPanel('Soldier',
+                 selectInput(
+                   'soldier_selected', 'Select a Soldier', 
+                   choices = unique(Recruits$Name)
+                 ),
+                 dataTableOutput('Soldier_table')
+        ),
+        # final tab is for the optimal fit table. 
+        #tabPanel('Optimal',
+                #tableOutput('Optimal_table'))
+        )
+      )
+    )
+  )
+
+
+server <- function(input, output, session){
+  output$Teams_table <- renderDT(
+    place_by_Team(input$team_selected) 
+  )
+  output$Soldier_table <- renderDT(
+    place_by_Soldier(input$soldier_selected)
+  )
+}
+
+shinyApp(ui, server)
